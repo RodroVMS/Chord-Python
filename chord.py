@@ -2,7 +2,6 @@ import logging
 import time 
 
 import zmq.sugar as zmq
-from zmq.sugar import poll
 
 from chord_const import *
 from utils import get_source_ip, zpipe, net_beacon, find_nodes, recieve_multipart_timeout
