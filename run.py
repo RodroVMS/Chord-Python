@@ -33,7 +33,7 @@ def main(m:int):
                 elif arg_0 == 'ns':
                     args.append(c.node_set)
                 elif arg_0 == 'ids':
-                    args.append(c.send_ids)
+                    args.append(c.ip_router_table)
                 elif arg_0 != "exit" and len(usr_input) > 1:
                     args.append(int(usr_input[1]))
             except IndexError:

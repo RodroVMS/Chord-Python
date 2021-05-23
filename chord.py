@@ -1,5 +1,5 @@
+import logging
 import time 
-from logging import  Logger
 
 import zmq.sugar as zmq
 from zmq.sugar import poll
@@ -31,7 +31,7 @@ class ChordNode:
         self.node_set = SortedSet([(self.node_id, self.ip)])
 
         self.ctx = zmq.Context()
-        self.send_ids = dict()
+        self.ip_router_table = dict() # To know a socket router id knowing the host's IP
         self.usr_pipe = zpipe(self.ctx) # Pipe to connect user with request_recv thread
         self.rr_pipe = zpipe(self.ctx) # Pipe for communication between request sender and request reciver threads
         
@@ -39,11 +39,12 @@ class ChordNode:
         self.ancestor_last_seen = 0
 
         # Sync
-        self.ids_lock = Lock()
+        self.ip_table_lock = Lock()
         self.set_lock = Lock()
 
         # Debbuging and Info
-        self.logger = Logger("chord log")
+        self.logger.setLevel(logging.INFO)
+        self.logger = logging.Logger("chord log")
     
     def lookup(self, key:int) -> str:
         '''
@@ -140,7 +141,7 @@ class ChordNode:
         poller.register(self.usr_pipe[1], zmq.POLLIN)
         poller.register(self.rr_pipe[1], zmq.POLLIN)
 
-        self.__update_send_list_router(send_router, self.ip, self.send_ids)
+        self.__get_id_from_ip_table(send_router, self.ip, self.ip_router_table)
 
         while self.online:
             sock_dict = dict(poller.poll(TIMEOUT_STABILIZE))
@@ -155,7 +156,9 @@ class ChordNode:
                 if answer is not None:
                     self.rr_pipe[1].send_multipart([answer])
             elif self.joined:
-                self.__request_stabilize(send_router, self.send_ids)
+                self.__request_stabilize(send_router, self.ip_router_table)
+        
+        send_router.close()
 
     def __reply_loop(self):
         '''
@@ -180,18 +183,19 @@ class ChordNode:
                 continue
 
             self.__reply_handler(request, recv_router)
+        recv_router.close()
 
     def __request_handler(self, request, send_router:zmq.Socket):
         flag, extra = request
         print("Sending request", flag)
 
         if flag == ASK_JOIN:
-            return self.__request_join(extra, send_router, self.send_ids)
+            return self.__request_join(extra, send_router, self.ip_router_table)
         if flag == ASK_SUCC or flag == ASK_PRED:
-            return self.__request_predsuccessor(flag, extra, send_router, self.send_ids)
+            return self.__request_predsuccessor(flag, extra, send_router, self.ip_router_table)
 
         if flag == STOP:
-            return self.__notify_leave(send_router, self.send_ids)
+            return self.__notify_leave(send_router, self.ip_router_table)
     
     def __reply_handler(self, request, recv_router:zmq.Socket):
         idx, sender_ip, flag, extra = request
@@ -230,7 +234,7 @@ class ChordNode:
                 known_index += 1
                 node_id, node_ip = known_ips[known_index]
             
-            other_router_id = self.__update_send_list_router(send_router, node_ip, send_ids)
+            other_router_id = self.__get_id_from_ip_table(send_router, node_ip, send_ids)
             send_router.send_multipart(
                 [other_router_id, self.ip.encode(), ASK_STAB, int.to_bytes(self.node_id, self.bits, 'big')]
             )
@@ -238,7 +242,8 @@ class ChordNode:
             reply = recieve_multipart_timeout(send_router, 8)
             if len(reply) == 0:
                 self.logger.warning(f"Could not stabilize. Could not connect to {node_ip}:{REP_PORT}. Trying with other known node.")
-                self.remove_node(node_id, node_ip)
+                self.__remove_node(node_id, node_ip)
+                self.__remove_id_from_ip_table(node_ip)
                 self.__update_finger_table()
                 continue
             _, flag, info = reply
@@ -265,7 +270,7 @@ class ChordNode:
         pos_pred_id = int.from_bytes(extra, 'big')
         pred_id, pred_ip = self.finger_table[0]
 
-        self.add_node(pos_pred_id, stab_ip.decode())
+        self.__add_node(pos_pred_id, stab_ip.decode())
 
         if self.__in_between(pos_pred_id, pred_id + 1, self.node_id) or time.time() - self.ancestor_last_seen  <= 0:
             self.ancestor_last_seen = time.time() + (TIMEOUT_STABILIZE*3)/1000
@@ -289,11 +294,12 @@ class ChordNode:
         '''
         node_id = int.from_bytes(node_id, 'big')
         node_ip = node_ip.decode()
-        self.remove_node(node_id, node_ip)
+        self.__remove_node(node_id, node_ip)
+        self.__remove_id_from_ip_table(node_ip)
         self.__update_finger_table()
 
         try:
-            del self.send_ids[node_ip]
+            del self.ip_router_table[node_ip]
         except KeyError:
             pass
 
@@ -305,7 +311,7 @@ class ChordNode:
         pred = True if flag == ASK_PRED else False
 
         node_id, node_ip = self.__get_node_with_key(key, pred)
-        other_router_id = self.__update_send_list_router(send_router, node_ip, send_ids)
+        other_router_id = self.__get_id_from_ip_table(send_router, node_ip, send_ids)
         extra = int.to_bytes(self.node_id, self.bits, 'big') + b':' + extra 
         print(f"Node {node_id} responsible for key {key}")
         
@@ -356,7 +362,7 @@ class ChordNode:
         '''
         print("Requesting join")
         ip = extra.decode()
-        other_router_id = self.__update_send_list_router(send_router, ip, send_ids)
+        other_router_id = self.__get_id_from_ip_table(send_router, ip, send_ids)
         print("Obtaining other router id", other_router_id)
         if other_router_id == b'':
             self.logger.warning(f"Could not join to {ip}")
@@ -391,8 +397,8 @@ class ChordNode:
         
         pred_ip = pred_ip.decode()
         succ_ip = succ_ip.decode()
-        self.add_node(pred_id, pred_ip)
-        self.add_node(succ_id, succ_ip)
+        self.__add_node(pred_id, pred_ip)
+        self.__add_node(succ_id, succ_ip)
         self.__update_finger_table()
 
         self.joined = True
@@ -404,7 +410,7 @@ class ChordNode:
         '''
         sender_ip = sender_ip.decode()
         join_node_id = int.from_bytes(extra, 'big')
-        self.add_node(join_node_id, sender_ip)
+        self.__add_node(join_node_id, sender_ip)
         self.__update_finger_table()
 
         self.rr_pipe[0].send_multipart([ASK_PRED, extra])
@@ -420,12 +426,12 @@ class ChordNode:
         recv_router.send_multipart([router_id, ANS_JOIN, info])
 
 
-    def __update_send_list_router(self, router, ip, send_ids) -> bytes:
+    def __get_id_from_ip_table(self, router, ip, ip_table) -> bytes:
         '''
         Get the router id of a chord node according to its IP.
         '''
         try:
-            return send_ids[ip]
+            return ip_table[ip]
         except KeyError:
             print("Connecting to", ip)
             router.connect(f"tcp://{ip}:{REP_PORT}")
@@ -437,12 +443,20 @@ class ChordNode:
                 self.logger.warning(f"SEND: Recieved {flag} while waiting for ack from {ip}")
                 return b''
             print("Recieved ACK", router_id, "||End||")
-            send_ids[ip] = router_id
+            ip_table[ip] = router_id
             node_id = int.from_bytes(node_id, 'big')
-            self.add_node(node_id, ip)
+            self.__add_node(node_id, ip)
             self.__update_finger_table()
         
-        return send_ids[ip]
+        return ip_table[ip]
+
+    def __remove_id_from_ip_table(self, ip):
+        self.ip_table_lock.acquire()
+        try:
+            del self.ip_router_table[ip]
+        except KeyError:
+            pass
+        self.ip_table_lock.release()
     
     def __update_finger_table(self):
         '''
@@ -490,7 +504,6 @@ class ChordNode:
         Returns true if key is in the specified bounds. Inclusive
         lower bound. Exclusive upper bound.
         '''
-        # print(f"inBetween key: {key}  lb:{lower_bound}  ub: {upper_bound}")
         if lower_bound <= upper_bound:
             return lower_bound <= key < upper_bound
         
@@ -499,7 +512,7 @@ class ChordNode:
             (lower_bound <= key + self.MAX_CONN and key < upper_bound)
         )
 
-    def add_node(self, node_id, node_ip):
+    def __add_node(self, node_id, node_ip):
         '''
         Add a new node to known online nodes by this node.
         '''
@@ -507,9 +520,9 @@ class ChordNode:
         self.node_set.add((node_id, node_ip))
         self.set_lock.release()
 
-    def remove_node(self, node_id, node_ip):
+    def __remove_node(self, node_id, node_ip):
         '''
-        Remove a known node from know nodes.
+        Forgets a known node
         '''
         self.set_lock.acquire()
         try:
