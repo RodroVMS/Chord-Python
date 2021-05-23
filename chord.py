@@ -9,8 +9,6 @@ from utils import get_source_ip, zpipe, net_beacon, find_nodes, recieve_multipar
 from sortedcontainers.sortedset import SortedSet
 from threading import Thread, Lock
 
-# TODo: Eliminar del diccionario send_ids de Request Handler
-
 class ChordNode:
     def __init__(self, m) -> None:
         '''
