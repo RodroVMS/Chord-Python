@@ -55,3 +55,16 @@ def find_nodes() -> str:
             tolerance -= 1
     broadcast_socket.close()
     return ""
+
+
+import zmq.sugar as zmq
+import time
+def recieve_multipart_timeout(sock, timeout):
+    start = time.time()
+    while time.time() -  start < timeout:
+        try:
+            res = sock.recv_multipart(zmq.NOBLOCK)
+            return res
+        except zmq.error.Again:
+            continue
+    return []
