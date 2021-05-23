@@ -31,9 +31,9 @@ class ChordNode:
         self.node_set = SortedSet([(self.node_id, self.ip)])
 
         self.ctx = zmq.Context()
-        self.ip_router_table = dict() # To know a socket router id knowing the host's IP
-        self.usr_pipe = zpipe(self.ctx) # Pipe to connect user with request_recv thread
-        self.rr_pipe = zpipe(self.ctx) # Pipe for communication between request sender and request reciver threads
+        self.ip_router_table = dict() # To know a socket router id by knowing the host's IP
+        self.usr_pipe = zpipe(self.ctx) # Pipe for iproc communication between user and request_reciever thread
+        self.rr_pipe = zpipe(self.ctx) # Pipe for iproc communication between request_sender and request_reciver threads
         
         # Stabilize
         self.ancestor_last_seen = 0
@@ -58,6 +58,7 @@ class ChordNode:
 
         self.usr_pipe[0].send_multipart([ASK_SUCC, int.to_bytes(key, self.bits, 'big')])
         holder = self.usr_pipe[0].recv_multipart()
+        holder = holder.decode()
         return holder
     
     def find_succesor(self, key:int):
@@ -72,7 +73,8 @@ class ChordNode:
             return "Node is alone in the net :("
         
         self.usr_pipe[0].send_multipart([ASK_SUCC, int.to_bytes(key, self.bits, 'big')])
-        succ_id = self.usr_pipe[0].recv_multipart()
+        succ_id = self.usr_pipe[0].recv_multipart()[0]
+        succ_id = succ_id.decode()
         return succ_id
 
     def find_predecessor(self, key:int):
@@ -85,7 +87,8 @@ class ChordNode:
             return "Node is alone in the net :("
         
         self.usr_pipe[0].send_multipart([ASK_PRED, int.to_bytes(key, self.bits, 'big')])
-        pred_id = self.usr_pipe[0].recv_multipart()
+        pred_id = self.usr_pipe[0].recv_multipart()[0]
+        pred_id = pred_id.decode()
         return pred_id
     
     def join(self, ip=""):
@@ -298,22 +301,17 @@ class ChordNode:
         self.__remove_id_from_ip_table(node_ip)
         self.__update_finger_table()
 
-        try:
-            del self.ip_router_table[node_ip]
-        except KeyError:
-            pass
-
     def __request_predsuccessor(self, flag, extra, send_router, send_ids):
         '''
         Request for predecessor or successor of a given key
         '''
         key = int.from_bytes(extra, 'big')
+        self.logger.info(f"Requesting {flag} from {key}")
         pred = True if flag == ASK_PRED else False
 
         node_id, node_ip = self.__get_node_with_key(key, pred)
         other_router_id = self.__get_id_from_ip_table(send_router, node_ip, send_ids)
         extra = int.to_bytes(self.node_id, self.bits, 'big') + b':' + extra 
-        print(f"Node {node_id} responsible for key {key}")
         
         if node_id == self.node_id:
             return int.to_bytes(self.node_id, self.bits, 'big') + b':' +  self.ip.encode()
@@ -327,7 +325,6 @@ class ChordNode:
         )
         reply = send_router.recv_multipart()
         _, _, info = reply
-        print("Recieved info")
         return info
 
     def __reply_predsuccesor(self, router_id, flag, extra, recv_router:zmq.Socket):
@@ -360,15 +357,13 @@ class ChordNode:
         '''
         Request for a known node in the chord node for succesor and ancestor.
         '''
-        print("Requesting join")
         ip = extra.decode()
+        self.logger.info(f"Requesting join to node in {ip}.")
         other_router_id = self.__get_id_from_ip_table(send_router, ip, send_ids)
-        print("Obtaining other router id", other_router_id)
         if other_router_id == b'':
-            self.logger.warning(f"Could not join to {ip}")
+            self.logger.warning(f"Could not join to {ip}.")
             return b''
         
-        print("Sending join1")
         send_router.send_multipart(
             [
                 other_router_id,
@@ -377,21 +372,16 @@ class ChordNode:
                 int.to_bytes(self.node_id, self.bits, 'big')
             ]
         )
-        print("Sending join2")
         reply = recieve_multipart_timeout(send_router, 8)
-        print("Recieving reply", reply)
         if len(reply) == 0:
-            self.logger.warning(f"Could not join to {ip}")
+            self.logger.warning(f"Could not join to {ip}.")
             return b''
         _, flag, extra = reply
         assert flag == ANS_JOIN, "Wrong flag"
-        print("Extra before", extra)
         extra = extra.split(b'@')
-        print("extra recieved\n", extra)
         pred_id, pred_ip = extra[0].split(b':')
         succ_id, succ_ip = extra[1].split(b':')
 
-        print("recieveing in join", pred_id, succ_id)
         pred_id = int.from_bytes(pred_id, 'big')
         succ_id = int.from_bytes(succ_id, 'big')
         
@@ -402,12 +392,13 @@ class ChordNode:
         self.__update_finger_table()
 
         self.joined = True
-        return b'Something here'
+        return f"This Node holds key in interval ({self.finger_table[0][0]}, {self.node_id}]"
     
     def __reply_join(self, router_id, sender_ip, extra, recv_router):
         '''
         Finds succesor and ancestor of joining node.
         '''
+        self.logger.info(f"Recieved join request from {sender_ip}")
         sender_ip = sender_ip.decode()
         join_node_id = int.from_bytes(extra, 'big')
         self.__add_node(join_node_id, sender_ip)
@@ -419,7 +410,6 @@ class ChordNode:
         self.rr_pipe[0].send_multipart([ASK_SUCC, extra])
         info_succ = self.rr_pipe[0].recv_multipart()[0]
 
-        print("Sendinf in join",info_pred, info_succ)
         info = info_pred + b'@' + info_succ
         
         self.joined = True
@@ -433,16 +423,15 @@ class ChordNode:
         try:
             return ip_table[ip]
         except KeyError:
-            print("Connecting to", ip)
+            self.logger.info(f"Obtaining router id of node in {ip}")
             router.connect(f"tcp://{ip}:{REP_PORT}")
             try:
                 router_id, flag, node_id = recieve_multipart_timeout(router, 8)
             except ValueError:
                 return b''
             if flag != ACK:
-                self.logger.warning(f"SEND: Recieved {flag} while waiting for ack from {ip}")
+                self.logger.warning(f"Recieved {flag} instead of ack.")
                 return b''
-            print("Recieved ACK", router_id, "||End||")
             ip_table[ip] = router_id
             node_id = int.from_bytes(node_id, 'big')
             self.__add_node(node_id, ip)
@@ -522,7 +511,7 @@ class ChordNode:
 
     def __remove_node(self, node_id, node_ip):
         '''
-        Forgets a known node
+        Forgets a known node.
         '''
         self.set_lock.acquire()
         try:
