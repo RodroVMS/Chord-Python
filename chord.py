@@ -43,6 +43,13 @@ class ChordNode:
         self.logger = logging.Logger("chord log")
         self.logger.setLevel(logging.INFO)
     
+    def get_finger_table(self):
+        return self.finger_table
+    
+    def get_node_set(self):
+        return self.node_set
+
+    
     def lookup(self, key:int) -> str:
         '''
         Yields the IP address of the node responsible
