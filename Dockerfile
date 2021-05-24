@@ -1,4 +1,4 @@
-from chord:latest
+from pyzmq:latest
 MAINTAINER Rodrigo Pino
 WORKDIR /app
 COPY . .

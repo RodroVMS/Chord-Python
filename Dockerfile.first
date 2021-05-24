@@ -1,6 +1,3 @@
 FROM python:3.7.1-slim
-MAINTAINER Rodrigo Pino
-WORKDIR /app
-COPY . .
+MAINTAINER Rodrigo Pinod
 RUN ["pip", "install", "zmq", "pyzmq", "sortedcontainers"]
-ENTRYPOINT ["python", "run.py"]

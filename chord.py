@@ -40,8 +40,8 @@ class ChordNode:
         self.set_lock = Lock()
 
         # Debbuging and Info
-        self.logger.setLevel(logging.INFO)
         self.logger = logging.Logger("chord log")
+        self.logger.setLevel(logging.INFO)
     
     def lookup(self, key:int) -> str:
         '''
@@ -389,7 +389,7 @@ class ChordNode:
         self.__update_finger_table()
 
         self.joined = True
-        return f"This Node holds key in interval ({self.finger_table[0][0]}, {self.node_id}]"
+        return f"This Node holds key in interval ({self.finger_table[0][0]}, {self.node_id}]".encode()
     
     def __reply_join(self, router_id, sender_ip, extra, recv_router):
         '''
