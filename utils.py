@@ -68,3 +68,10 @@ def recieve_multipart_timeout(sock, timeout):
         except zmq.error.Again:
             continue
     return []
+
+def clean_pipeline(sock):
+    while True:
+        try:
+            sock.recv_multipart(zmq.NOBLOCK)
+        except zmq.error.Again:
+            break
