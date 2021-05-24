@@ -63,7 +63,7 @@ class ChordNode:
             return "Node is alone in the net :("
 
         self.usr_pipe[0].send_multipart([ASK_SUCC, int.to_bytes(key, self.bits, 'big')])
-        holder = self.usr_pipe[0].recv_multipart()
+        holder = self.usr_pipe[0].recv_multipart()[0]
         holder = holder.decode()
         return holder
     
@@ -212,6 +212,10 @@ class ChordNode:
 
         if flag == ASK_JOIN:
             return self.__reply_join(idx, sender_ip, extra, recv_router)
+        
+        if not self.joined:
+            return
+        
         if flag == ASK_SUCC or flag == ASK_PRED:
             return self.__reply_predsuccesor(idx, flag, extra, recv_router)
         if flag == ASK_STAB:
@@ -230,12 +234,13 @@ class ChordNode:
         succ_id, succ_ip = self.finger_table[1]; print(f">Starting stabilize. Current succ {succ_id}:{succ_ip}")
         node_set = self.node_set.copy()
         node_set.remove((succ_id, succ_ip))
+        node_set.remove((self.node_id, self.ip))
 
         known_ips = [(succ_id, succ_ip)] + [node for node in node_set]
         new_ips = []
         known_index = -1
         new_index = -1
-        while known_index < len(known_ips) - 1:
+        while known_index < len(known_ips) - 1 or new_index < len(new_ips) - 1:
             if new_index < len(new_ips) - 1:
                 new_index += 1
                 node_id, node_ip = new_ips[new_index]
@@ -248,11 +253,11 @@ class ChordNode:
                 [other_router_id, self.ip.encode(), ASK_STAB, int.to_bytes(self.node_id, self.bits, 'big')]
             )
 
-            reply = recieve_multipart_timeout(send_router, 8)
+            reply = recieve_multipart_timeout(send_router, 1)
             if len(reply) == 0:
                 self.logger.warning(f"Could not stabilize. Could not connect to {node_ip}:{REP_PORT}. Trying with other known node.")
                 self.__remove_node(node_id, node_ip)
-                self.__remove_id_from_ip_table(node_ip)
+                self.__remove_id_from_ip_table(node_ip, send_router)
                 self.__update_finger_table()
                 continue
             _, flag, info = reply
@@ -269,8 +274,8 @@ class ChordNode:
             print(f"!!Ancestor of {node_id}:{node_ip} changed to", pred_id, pred_ip)
             new_ips.append((pred_id, pred_ip))
         
-        print("<Ending stabilize")
         self.__update_finger_table()
+        print("<Ending stabilize")
     
     def __reply_stabilize(self, router_id, stab_ip, extra, recv_router:zmq.Socket):
         '''
@@ -278,14 +283,25 @@ class ChordNode:
         '''
         pos_pred_id = int.from_bytes(extra, 'big')
         pred_id, pred_ip = self.finger_table[0]
+        
+        if time.time() >= self.ancestor_last_seen and pred_id != pos_pred_id:
+            self.__remove_node(pred_id, pred_ip)
+            self.__remove_id_from_ip_table(pred_ip)
+            if len(self.node_set) > 1:
+                self.__update_finger_table()
+                pred_id, pred_ip = self.finger_table[0]
+            else:
+                pred_id, pred_ip = pos_pred_id, stab_ip.decode()
 
         self.__add_node(pos_pred_id, stab_ip.decode())
 
-        if self.__in_between(pos_pred_id, pred_id + 1, self.node_id) or time.time() - self.ancestor_last_seen  <= 0:
+        if self.__in_between(pos_pred_id, pred_id, self.node_id):
+            print(f"My predecessor is {pos_pred_id}")
             self.ancestor_last_seen = time.time() + (TIMEOUT_STABILIZE*3)/1000
             recv_router.send_multipart([router_id, ANS_STAB, extra + b':' + stab_ip])
             self.__update_finger_table()
         else:
+            print(f"Asnwering to {pos_pred_id} that my predecessor is {pred_id} for at least {time.time() - self.ancestor_last_seen}")
             recv_router.send_multipart([router_id, ANS_STAB, int.to_bytes(pred_id, self.bits, 'big') + b':' + pred_ip.encode()])
 
     def __notify_leave(self, send_router, send_ids):
@@ -294,7 +310,7 @@ class ChordNode:
         '''
         for node_ip in send_ids:
             node_router_id = send_ids[node_ip]
-            send_router.send_multipart[node_router_id, self.ip.encode(), LEAVE, int.to_bytes(self.node_id, self.bits, 'big')]
+            send_router.send_multipart([node_router_id, self.ip.encode(), LEAVE, int.to_bytes(self.node_id, self.bits, 'big')])
         return b'Done'
 
     def __acknowledge_leave(self, node_ip, node_id):
@@ -305,7 +321,10 @@ class ChordNode:
         node_ip = node_ip.decode()
         self.__remove_node(node_id, node_ip)
         self.__remove_id_from_ip_table(node_ip)
-        self.__update_finger_table()
+        if len(self.node_set) <= 1:
+            self.joined = False
+        else:
+            self.__update_finger_table()
 
     def __request_predsuccessor(self, flag, extra, send_router, send_ids):
         '''
@@ -445,8 +464,10 @@ class ChordNode:
         
         return ip_table[ip]
 
-    def __remove_id_from_ip_table(self, ip):
+    def __remove_id_from_ip_table(self, ip, router = None):
         self.ip_table_lock.acquire()
+        if router is not None:
+            router.disconnect(f"tcp://{ip}:{REP_PORT}")
         try:
             del self.ip_router_table[ip]
         except KeyError:
@@ -524,7 +545,5 @@ class ChordNode:
             self.node_set.remove((node_id, node_ip))
         except KeyError:
             pass
-        if len(self.node_set) == 1:
-            self.online = False
         self.set_lock.release()
   
