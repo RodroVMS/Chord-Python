@@ -49,6 +49,8 @@ class ChordNode:
     def get_node_set(self):
         return self.node_set
 
+    def get_ip_table(self):
+        return self.ip_router_table
     
     def lookup(self, key:int) -> str:
         '''
