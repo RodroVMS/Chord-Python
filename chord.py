@@ -174,7 +174,6 @@ class ChordNode:
         Node starts a routine where it stabilizes periodically.
         It also handles request from other nodes.
         '''
-        
         recv_router = self.ctx.socket(zmq.ROUTER)
         recv_router.bind(f"tcp://{self.ip}:{REP_PORT}")
 
