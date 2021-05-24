@@ -1,4 +1,4 @@
-from pyzmq:latest
+from pyzmq
 MAINTAINER Rodrigo Pino
 WORKDIR /app
 COPY . .
