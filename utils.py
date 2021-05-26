@@ -22,7 +22,7 @@ def zpipe(ctx):
 
 import socket
 BEACON_PORT = 8001
-def net_beacon(ip):
+def net_beacon(ip, id_bits):
     # print("Beacon Online ...")
     beacon_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
     beacon_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -31,24 +31,27 @@ def net_beacon(ip):
         info, addr = beacon_socket.recvfrom(1024)
         if addr[0] == ip:
             continue
-        if info == b"PING":
-            # print(f"Deteced signaling peer: {addr[0]}:{addr[1] - BEACON_SOCK}")
-            beacon_socket.sendto("PONG".encode(), addr)
+        if info.startswith(b"PING"):
+            _, bits = info.split(b'@')
+            bits = int.from_bytes(bits, "big")
+            if bits == id_bits:
+                beacon_socket.sendto("PONG".encode(), addr)
 
-def find_nodes() -> str:
-    print("Searching for On-line Nodes ...")
+def find_nodes(id_bits) -> str:
+    print("Searching for on-line nodes ...")
     broadcast_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
     broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     broadcast_socket.settimeout(0.5)
     tolerance = 3
     while tolerance > 0:
         broadcast_socket.sendto(
-            "PING".encode("utf-8"), ("<broadcast>", BEACON_PORT)
+            b"PING@" + int.to_bytes(id_bits, 8, "big"),
+            ("<broadcast>", BEACON_PORT)
         )
         try:
             info, addr = broadcast_socket.recvfrom(1024)
             if info == b"PONG":
-                print(f"Found online peer: {addr[0]}:{BEACON_PORT - 1}")
+                print(f"Found on-line peer: {addr[0]}:{BEACON_PORT - 1}")
                 broadcast_socket.close()
                 return addr[0]
         except socket.timeout:
