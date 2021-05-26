@@ -26,11 +26,11 @@ Para ejecutar el programa, ejecutar la siguiente línea en la consola:
 
 Tambien es posible obtener una imagen del proyecto haciendo:
 
-> docker build -t <Image Name> .
+> docker build -t <ImageName> .
 
 Luego para ejecutarla:
 
-> docker run -it <Image Name> <arg>
+> docker run -it <ImageName> <arg>
 
 #### Mini Cliente de Chord
 
