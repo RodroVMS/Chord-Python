@@ -15,4 +15,4 @@ ACK = b'ack'
 STOP = b'stop'
 LEAVE = b'leave'
 
-TIMEOUT_STABILIZE = 5000
+TIMEOUT_STABILIZE = 1000
