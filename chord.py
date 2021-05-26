@@ -464,10 +464,14 @@ class ChordNode:
         self.__add_node(join_node_id, sender_ip)
         self.__update_finger_table()
 
-        self.rr_pipe[0].send_multipart([ASK_PRED, int.to_bytes(join_node_id - 1, self.bits, "big")])
+        self.rr_pipe[0].send_multipart(
+            [ASK_PRED, int.to_bytes((join_node_id - 1) % self.MAX_CONN, self.bits, "big")]
+            )
         info_pred = self.rr_pipe[0].recv_multipart()[0]
 
-        self.rr_pipe[0].send_multipart([ASK_SUCC, int.to_bytes(join_node_id + 1, self.bits, "big")])
+        self.rr_pipe[0].send_multipart(
+            [ASK_SUCC, int.to_bytes((join_node_id + 1)% self.MAX_CONN, self.bits, "big")]
+            )
         info_succ = self.rr_pipe[0].recv_multipart()[0]
 
         info = info_pred + b'@' + info_succ
