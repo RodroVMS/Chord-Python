@@ -20,17 +20,17 @@ Durante el proceso de estabilización si el predecesor del nodo no manda un upda
 
 Para ejecutar el programa, ejecutar la siguiente línea en la consola:
 
-> python run <arg>
+> python run \<arg\>
 
-<arg> representa el tamaño maximo del "círculo" de los identificadores. Dos nodos con tamaños distintos no se conectan entre ellos. 
+\<arg\> representa el tamaño maximo del "círculo" de los identificadores. Dos nodos con tamaños distintos no se conectan entre ellos. 
 
 Tambien es posible obtener una imagen del proyecto haciendo:
 
-> docker build -t <ImageName> .
+> docker build -t \<ImageName> 
 
 Luego para ejecutarla:
 
-> docker run -it <ImageName> <arg>
+> docker run -it \<ImageName> \<arg>
 
 #### Mini Cliente de Chord
 
