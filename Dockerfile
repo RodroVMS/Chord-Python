@@ -1,5 +1,3 @@
-from pyzmq
+FROM python:3.7.1-slim
 MAINTAINER Rodrigo Pino
-WORKDIR /app
-COPY . .
-ENTRYPOINT ["python", "run.py"]
+RUN ["pip", "install", "zmq", "pyzmq", "sortedcontainers"]
