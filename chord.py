@@ -438,7 +438,7 @@ class ChordNode:
 
         pred_id = int.from_bytes(pred_id, 'big')
         succ_id = int.from_bytes(succ_id, 'big')
-        self.logger.info(f"Obtained pred: {pred_id} and succ: {succ_id}")
+        self.logger.debug(f"Obtained pred: {pred_id} and succ: {succ_id}")
         
         pred_ip = pred_ip.decode()
         succ_ip = succ_ip.decode()
